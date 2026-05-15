@@ -1,0 +1,61 @@
+user_id,ent_id,ent_name
+u001,e_vpn,VPN Access
+u001,e_email,Email Access
+u001,e_hr,HR Portal
+u001,e_github,GitHub Access
+u001,e_jira,Jira Access
+u001,e_confluence,Confluence Access
+u002,e_vpn,VPN Access
+u002,e_email,Email Access
+u002,e_hr,HR Portal
+u002,e_github,GitHub Access
+u002,e_jira,Jira Access
+u002,e_confluence,Confluence Access
+u003,e_vpn,VPN Access
+u003,e_email,Email Access
+u003,e_hr,HR Portal
+u003,e_github,GitHub Access
+u003,e_jira,Jira Access
+u003,e_confluence,Confluence Access
+u004,e_vpn,VPN Access
+u004,e_email,Email Access
+u004,e_hr,HR Portal
+u004,e_sap,SAP Finance
+u004,e_oracle,Oracle Finance
+u004,e_tableau,Tableau
+u005,e_vpn,VPN Access
+u005,e_email,Email Access
+u005,e_hr,HR Portal
+u005,e_sap,SAP Finance
+u005,e_oracle,Oracle Finance
+u005,e_tableau,Tableau
+u006,e_vpn,VPN Access
+u006,e_email,Email Access
+u006,e_hr,HR Portal
+u006,e_sap,SAP Finance
+u006,e_oracle,Oracle Finance
+u006,e_tableau,Tableau
+u007,e_vpn,VPN Access
+u007,e_email,Email Access
+u007,e_hr,HR Portal
+u007,e_github,GitHub Access
+u007,e_jira,Jira Access
+u007,e_confluence,Confluence Access
+u008,e_vpn,VPN Access
+u008,e_email,Email Access
+u008,e_hr,HR Portal
+u008,e_github,GitHub Access
+u008,e_jira,Jira Access
+u008,e_confluence,Confluence Access
+u009,e_vpn,VPN Access
+u009,e_email,Email Access
+u009,e_hr,HR Portal
+u009,e_sap,SAP Finance
+u009,e_oracle,Oracle Finance
+u009,e_tableau,Tableau
+u010,e_vpn,VPN Access
+u010,e_email,Email Access
+u010,e_hr,HR Portal
+u010,e_sap,SAP Finance
+u010,e_oracle,Oracle Finance
+u010,e_tableau,Tableau

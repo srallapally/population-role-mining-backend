@@ -1,0 +1,11 @@
+ent_id,ent_name,ent_owner_id,app_id,EntitlementTypeID,EntitlementTypeName
+e_vpn,VPN Access,owner1,NetworkApp,1,Standard
+e_email,Email Access,owner1,EmailApp,1,Standard
+e_hr,HR Portal,owner1,HRApp,1,Standard
+e_github,GitHub Access,owner2,DevApp,2,PermissionSet
+e_jira,Jira Access,owner2,DevApp,2,PermissionSet
+e_confluence,Confluence Access,owner2,DevApp,2,PermissionSet
+e_sap,SAP Finance,owner3,FinanceApp,3,Role
+e_oracle,Oracle Finance,owner3,FinanceApp,3,Role
+e_tableau,Tableau,owner3,AnalyticsApp,3,Standard
+e_rare,Rare Tool,owner4,RareApp,4,Standard

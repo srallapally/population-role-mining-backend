@@ -1,0 +1,11 @@
+usr_id,user_name,usr_manager_id,CostCenterNumber,CostCenterDescription,JobCode,JobCodeDescription,IsManager,ManagementLevel,ManagementLevelDescription,WorkLocation,OrgRelation,OrgCode,EmployeeTypeID,EmployeeTypeName,managerjobcode
+u001,alice,m001,CC01,Engineering,JC10,Software Engineer,false,1,Individual Contributor,NYC,FTE,ORG01,1,Employee,JC20
+u002,bob,m001,CC01,Engineering,JC10,Software Engineer,false,1,Individual Contributor,NYC,FTE,ORG01,1,Employee,JC20
+u003,carol,m001,CC01,Engineering,JC10,Software Engineer,false,1,Individual Contributor,NYC,FTE,ORG01,1,Employee,JC20
+u004,dave,m002,CC02,Finance,JC20,Analyst,false,1,Individual Contributor,CHI,FTE,ORG02,1,Employee,JC30
+u005,eve,m002,CC02,Finance,JC20,Analyst,false,1,Individual Contributor,CHI,FTE,ORG02,1,Employee,JC30
+u006,frank,m002,CC02,Finance,JC20,Analyst,false,1,Individual Contributor,CHI,FTE,ORG02,1,Employee,JC30
+u007,grace,m003,CC01,Engineering,JC10,Software Engineer,false,1,Individual Contributor,NYC,FTE,ORG01,1,Employee,JC20
+u008,heidi,m003,CC01,Engineering,JC10,Software Engineer,false,1,Individual Contributor,NYC,FTE,ORG01,1,Employee,JC20
+u009,ivan,m003,CC02,Finance,JC20,Analyst,false,1,Individual Contributor,CHI,FTE,ORG02,1,Employee,JC30
+u010,judy,m003,CC02,Finance,JC20,Analyst,false,1,Individual Contributor,CHI,FTE,ORG02,1,Employee,JC30

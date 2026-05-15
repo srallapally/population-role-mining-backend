@@ -1,0 +1,23 @@
+
+Also add this to `.gitignore` so Git enforces the rule independently of Codex:
+
+```gitignore
+# Local environment and secrets
+.env
+.env.*
+*.env
+.flaskenv
+.envrc
+secrets.py
+secrets.toml
+.streamlit/secrets.toml
+
+# Keep templates
+!.env.example
+!.env.sample
+!.env.template
+
+# Python virtual environments
+.venv/
+venv/
+env/
