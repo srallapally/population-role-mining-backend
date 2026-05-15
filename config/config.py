@@ -7,7 +7,7 @@ IDENTITIES_FILE = os.path.join(CSV_DIR, "identities.csv")
 IDENTITY_PK_COLUMN = os.environ.get("IDENTITY_PK_COLUMN", "usr_id")
 ENTITLEMENTS_FILE = os.path.join(CSV_DIR, "entitlements.csv")
 ASSIGNMENTS_FILE = os.path.join(CSV_DIR, "assignments.csv")
-ASSIGNMENT_USER_COLUMN = os.environ.get("ASSIGNMENT_USER_COLUMN", "user_id")
+ASSIGNMENT_USER_COLUMN = os.environ.get("ASSIGNMENT_USER_COLUMN", "usr_id")
 
 MAX_POPULATION = int(os.environ.get("MAX_POPULATION", 10000))
 MAX_CONCURRENT_SESSIONS = int(os.environ.get("MAX_CONCURRENT_SESSIONS", 5))

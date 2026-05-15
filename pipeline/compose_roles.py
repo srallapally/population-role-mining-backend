@@ -100,6 +100,7 @@ def compose_roles(
                 em["entId"] for em in ent_meta if em["tier"] == "role_defining"
             ),
             "confidence": round(cohesion, 4),
+            "memberIds": user_ids,
             "applications": applications,
             "entitlementMetadata": ent_meta,
             "justificationMetadata": {

@@ -210,6 +210,7 @@ def _build_layer1_role(
             "thresholds": _thresholds(parameters),
         },
         "confidence": None,
+        "memberIds": [population_ids[i] for i in sorted(intersection)],
     }
 
 
