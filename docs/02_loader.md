@@ -16,7 +16,7 @@ The four public functions are:
 | `get_identities()` | The identities DataFrame |
 | `get_entitlements()` | The entitlements DataFrame |
 | `get_assignments()` | The assignments DataFrame |
-| `get_filter_columns()` | List of column names from identities, excluding `usr_id` |
+| `get_filter_columns()` | List of column names from identities, excluding `config.IDENTITY_PK_COLUMN` |
 
 ## A Critical Implementation Detail
 
@@ -46,6 +46,6 @@ By referencing `config.IDENTITIES_FILE` at call time (inside `load_all()`), the 
 
 Real-world CSV exports from HR and identity systems are often encoded in Windows-1252 (also called latin-1), not UTF-8. Windows-1252 includes characters like curly apostrophes (`'` = byte `0x92`) that are invalid UTF-8. Attempting to read such a file with `encoding="utf-8"` raises a `UnicodeDecodeError`.
 
-The encoding is configurable via `config.CSV_ENCODING` (default `utf-8`). For production data exports from Windows systems, set `CSV_ENCODING=latin-1`.
+`config.CSV_ENCODING` is captured in session launch metadata, but the current loader implementation does not use it uniformly yet: identities and assignments are read as `utf-8`, while entitlements are read as `utf-8-sig` to tolerate a UTF-8 BOM in exported catalogues.
 
-Test fixtures are plain UTF-8, so tests run with the default encoding without any special setup.
+Test fixtures are plain UTF-8, so tests run without any special encoding setup.

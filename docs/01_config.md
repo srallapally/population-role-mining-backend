@@ -26,8 +26,10 @@ If the environment variable is not set, the default is used. This means the serv
 |---|---|---|
 | `CSV_DIR` | `./data` | Directory containing the three CSV files |
 | `IDENTITIES_FILE` | `{CSV_DIR}/identities.csv` | Path to the identities CSV |
+| `IDENTITY_PK_COLUMN` | `usr_id` | Primary-key column in `identities.csv` |
 | `ENTITLEMENTS_FILE` | `{CSV_DIR}/entitlements.csv` | Path to the entitlements CSV |
 | `ASSIGNMENTS_FILE` | `{CSV_DIR}/assignments.csv` | Path to the assignments CSV |
+| `ASSIGNMENT_USER_COLUMN` | `user_id` | User foreign-key column in `assignments.csv` |
 | `CSV_ENCODING` | `utf-8` | File encoding. Set to `latin-1` for Windows-1252 encoded files. |
 
 ### Server
@@ -36,7 +38,10 @@ If the environment variable is not set, the default is used. This means the serv
 |---|---|---|
 | `PORT` | `8000` | Port the server listens on |
 | `MAX_POPULATION` | `10000` | Hard cap on session population size |
-| `MAX_CONCURRENT_SESSIONS` | `5` | Maximum sessions in `running` status at any time |
+| `MAX_CONCURRENT_SESSIONS` | `5` | Maximum sessions in `running` or `cancelling` status at any time |
+| `MAX_ACTIVE_SESSIONS` | `5` | Maximum sessions in `pending`, `running`, or `cancelling` status at any time |
+| `MAX_TOTAL_SESSIONS` | `1000` | Maximum retained sessions, regardless of status |
+| `ALGORITHM_VERSION` | `2026-05-15-001` | Version tag captured in each session's `launchConfig` |
 
 ### Pipeline Defaults
 

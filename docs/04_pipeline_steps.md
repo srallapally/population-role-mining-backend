@@ -141,16 +141,18 @@ Returns:
 
 **Entry point:** `run_pipeline(session_id)`
 
-Called by the background thread spawned when `POST /sessions/:id/run` succeeds. Wires together all six pipeline steps and handles the atomic write phase.
+Called by the background thread spawned when `POST /sessions/:id/run` succeeds. Wires together the pipeline steps and handles the write phase. `job_roles` sessions run all six steps. `birthright` sessions stop after Step 3 and write only Layer 1 roles.
 
-**Error handling:** The entire function body is wrapped in a try/except. Any exception from any step causes the session to be marked `failed` with `errorDetail` set to the exception message. No partial results are written.
+**Error handling:** The entire function body is wrapped in a try/except. Any exception from any step causes the session to be marked `failed` with `errorDetail` set to the exception message, unless the session is already cancelling.
+
+**Cancellation:** The orchestrator checks the session cancellation flag between major steps. If cancellation was requested, it marks the session `cancelled`, runs cancelled-session cleanup, and exits without writing further results.
 
 **Write ordering:**
 1. Write Layer 1 roles (sorted by first app name, then role UUID)
 2. Write Layer 2 roles (in canonical order)
 3. Update session to `complete` with all output fields
 
-The session is only marked `complete` after all role writes succeed. This ensures the API never returns a `complete` session that has missing roles.
+For `job_roles`, the session is only marked `complete` after role writes succeed. For `birthright`, only Layer 1 roles and Layer 1 session fields are written.
 
 **What gets written to the session on completion:**
 

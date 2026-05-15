@@ -50,9 +50,9 @@ Both outputs are enriched with enough metadata for an analyst to understand why 
 
 The system is a Python REST API. An analyst interacts with it by:
 
-1. Creating a session with a population filter and optional parameter overrides
+1. Creating a session with a population filter, `roleType`, and optional parameter overrides
 2. Starting the pipeline, which runs asynchronously in a background thread
-3. Polling the session until it reaches `complete` or `failed` status
+3. Polling the session until it reaches `complete`, `failed`, or `cancelled` status
 4. Retrieving the produced roles
 
 The pipeline itself reads from three CSV files (identities, entitlements, assignments) and writes results to an in-memory store. A Vue frontend (under development) will provide a UI over the same REST API.

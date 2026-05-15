@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`store.py` is the in-memory database for the POC. It holds all session and role state in two Python dictionaries and exposes a thread-safe interface for reading and writing them.
+`store.py` is the in-memory database for the POC. It holds all session and role state in two Python dictionaries and exposes helper functions for session lifecycle transitions, cancellation, cleanup, and role storage.
 
 ## Structure
 
@@ -12,38 +12,32 @@ _roles: dict[str, dict] = {}      # keyed by role UUID
 _lock = threading.Lock()
 ```
 
-All writes acquire the lock. All reads return copies of the stored data — never references to the live dicts. This means callers cannot accidentally mutate stored state by modifying the returned object.
+Writes and lifecycle transitions acquire the lock. Reads currently return the stored dict objects directly, so route and pipeline code must treat returned sessions and roles as live mutable objects and call store helpers consistently when changing lifecycle state.
 
-## Why Copies Matter
+## Live Dict Caveat
 
-Without copying, this would be unsafe:
+Because reads return live dicts, this mutates stored state immediately:
 
 ```python
 session = store.get_session(sid)
 session["status"] = "running"       # mutates the live stored dict directly
 ```
 
-With copying, `get_session` returns a new dict each time. The caller can modify it freely. To persist changes, the caller must call `put_session()` explicitly. This makes the write intention explicit and prevents silent state corruption from concurrent modifications.
+For simple fields this is acceptable in the current POC, but lifecycle-sensitive changes should use the atomic helper functions below.
 
-## Atomic Status Transitions
+## Atomic Lifecycle Helpers
 
-The most important function is `transition_session_status()`:
+The store provides specific atomic helpers instead of a generic transition function:
 
-```python
-def transition_session_status(session_id, expected, new, updates=None):
-    with _lock:
-        s = _sessions.get(session_id)
-        if not s or s["status"] != expected:
-            return None          # transition rejected
-        s = dict(s)
-        s["status"] = new
-        if updates:
-            s.update(updates)
-        _sessions[session_id] = s
-        return dict(s)
-```
+| Function | Purpose |
+|---|---|
+| `try_put_session_with_limits(session, max_active, max_total)` | Atomically creates a session if both active and total capacity are available |
+| `transition_pending_to_running(session_id, updated_at)` | Atomically starts a pending session |
+| `request_session_cancel(session_id, updated_at)` | Requests cancellation for pending/running sessions |
+| `mark_session_cancelled(session_id, updated_at)` | Marks a running/cancelling session as terminal `cancelled` |
+| `cleanup_cancelled_session(session_id, updated_at)` | Deletes generated roles for cancelled sessions and marks cleanup complete |
 
-This function checks the current status and sets the new status **inside the same lock acquisition**. This prevents the following race condition:
+These helpers check the current status and apply the new state inside the same lock acquisition. This prevents the following race condition:
 
 ```
 Thread A: reads status="pending" ✓
@@ -52,29 +46,39 @@ Thread A: writes status="running"
 Thread B: writes status="running"  ← both threads start the pipeline
 ```
 
-With `transition_session_status`, only one thread can successfully transition from `pending` to `running`. The second call finds the status is already `running` (not `pending`) and returns `None`, which the route handler treats as a 409 conflict.
+With `transition_pending_to_running`, only one thread can successfully transition from `pending` to `running`. The second call finds the status is already `running` and returns `None`, which the route handler treats as a 409 conflict.
 
 ## Concurrency Cap
 
-`count_running_sessions()` counts sessions currently in `running` status. This is used by the route handler to enforce the `MAX_CONCURRENT_SESSIONS` limit. Because the count check and the status transition are separate operations, there is a narrow race window where two sessions could both pass the count check before either transitions. For the POC this is acceptable. A production implementation would fold the cap check into `transition_session_status` under the same lock.
+`count_running_sessions()` counts sessions currently in `running` or `cancelling` status. This is used by the route handler to enforce `MAX_CONCURRENT_SESSIONS`.
+
+Session creation uses `try_put_session_with_limits()` to enforce `MAX_ACTIVE_SESSIONS` and `MAX_TOTAL_SESSIONS` atomically. Active sessions are `pending`, `running`, and `cancelling`.
 
 ## Public API
 
 | Function | Description |
 |---|---|
-| `get_session(id)` | Returns a copy of the session dict, or `None` |
-| `put_session(session)` | Stores a copy of the session dict |
-| `transition_session_status(id, expected, new, updates)` | Atomic status transition — returns updated session or `None` on mismatch |
-| `count_running_sessions()` | Returns count of sessions with `status="running"` |
-| `list_sessions(status, owner, from_, size)` | Filtered, paginated list of session copies |
-| `get_role(id)` | Returns a copy of the role dict, or `None` |
-| `put_role(role)` | Stores a copy of the role dict |
-| `list_roles_for_session(session_id)` | Returns copies of all roles for a given session |
+| `get_session(id)` | Returns the session dict, or `None` |
+| `put_session(session)` | Stores the session dict |
+| `try_put_session_with_limits(session, max_active, max_total)` | Atomic session creation with active and total caps |
+| `transition_pending_to_running(id, updated_at)` | Atomic `pending -> running` transition |
+| `request_session_cancel(id, updated_at)` | Requests cancellation and returns the transition result |
+| `is_cancel_requested(id)` | Returns whether cancellation has been requested |
+| `mark_session_cancelled(id, updated_at)` | Marks a session terminal `cancelled` |
+| `cleanup_cancelled_session(id, updated_at)` | Deletes roles for a cancelled session and marks cleanup complete |
+| `count_running_sessions()` | Returns count of sessions with `running` or `cancelling` status |
+| `count_active_sessions()` | Returns count of `pending`, `running`, and `cancelling` sessions |
+| `count_sessions()` | Returns total retained session count |
+| `list_sessions(status, owner, from_, size)` | Filtered, paginated list of sessions |
+| `get_role(id)` | Returns the role dict, or `None` |
+| `put_role(role)` | Stores the role dict |
+| `list_roles_for_session(session_id)` | Returns all roles for a given session |
+| `delete_roles_for_session(session_id)` | Deletes generated roles for a given session |
 
 ## POC Limitations
 
 - State is lost on server restart — there is no persistence layer
-- Memory grows unboundedly as sessions accumulate — no eviction policy
+- Retention is capped by `MAX_TOTAL_SESSIONS`, but there is no automatic old-session eviction policy
 - The lock is global — all reads and writes contend on the same lock regardless of which session they concern
 
 These are acceptable constraints for a proof of concept. A production implementation would replace this with a database (e.g. PostgreSQL or Elasticsearch) and remove the need for application-level locking entirely.

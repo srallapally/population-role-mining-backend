@@ -12,7 +12,7 @@ One row per user. Contains identity attributes used to define the population fil
 
 | Column | Description |
 |---|---|
-| `usr_id` | Primary key — unique user identifier. Used internally; not a valid filter key. |
+| `usr_id` | Default primary key — unique user identifier. The actual key is configurable via `IDENTITY_PK_COLUMN`; it is not a valid filter key. |
 | `user_name` | Login name |
 | `usr_manager_id` | Manager's user ID |
 | `CostCenterNumber` | Cost centre code |
@@ -29,7 +29,7 @@ One row per user. Contains identity attributes used to define the population fil
 | `EmployeeTypeName` | Employee type label (e.g. Employee, Contractor) |
 | `managerjobcode` | Job code of the user's manager |
 
-All columns except `usr_id` are valid filter keys. The system derives the list of valid filter keys dynamically from the CSV headers at load time — no column names are hardcoded.
+All columns except the configured identity primary key are valid filter keys. The system derives the list of valid filter keys dynamically from the CSV headers at load time.
 
 **Filter behaviour:** A filter criterion `{"JobCode": "Epic Link"}` selects all rows where `JobCode == "Epic Link"`. Multiple criteria are ANDed together. A criterion value can be a single string or a list of strings (OR within the field).
 
@@ -56,11 +56,11 @@ One row per (user, entitlement) grant. This is the primary input to matrix const
 
 | Column | Description |
 |---|---|
-| `user_id` | Foreign key to `identities.csv.usr_id` |
+| `user_id` | Default foreign key to the identity primary key. The actual column is configurable via `ASSIGNMENT_USER_COLUMN`. |
 | `ent_id` | Foreign key to `entitlements.csv.ent_id` |
 | `ent_name` | Entitlement name (denormalised from entitlements) |
 
-The pipeline joins assignments to the filtered population by `user_id`, then constructs a binary matrix where each cell indicates whether a user holds a given entitlement.
+The pipeline joins assignments to the filtered population by the configured assignment user column, then constructs a binary matrix where each cell indicates whether a user holds a given entitlement.
 
 ---
 
@@ -80,6 +80,8 @@ A session represents one pipeline run. It is created by the analyst, transitions
 pending → running → complete
                  → failed
 complete → saved
+pending → cancelled
+running → cancelling → cancelled
 ```
 
 **Key fields:**
@@ -90,8 +92,14 @@ complete → saved
 | `status` | API + Pipeline | Current lifecycle state |
 | `sessionOwner` | API | Analyst ID from `X-Analyst-Id` header |
 | `parameters` | API | Fully resolved input parameters — set at creation, never modified |
+| `launchConfig` | API | Immutable launch snapshot used to recall or clone the session |
+| `cleanupStatus` | API + Store | Cleanup state for cancelled sessions (`pending`, `complete`, or `failed`) |
+| `cancelRequested` | API | Boolean flag used by the background worker for cooperative cancellation |
+| `cancelledAt` | API + Pipeline | Timestamp when cancellation became terminal |
+| `cleanedUpAt` | Store | Timestamp when cancelled-session cleanup completed |
+| `clonedFromSessionId` | API | Source session ID when this session was created by clone/replay |
 | `populationSize` | Pipeline | Number of users matched by the filter |
-| `totalEntitlementsConsidered` | Pipeline | Entitlements surviving the noise filter |
+| `totalEntitlementsConsidered` | Pipeline | Entitlements considered before the noise filter within the filtered population |
 | `totalEntitlementsDropped` | Pipeline | Entitlements removed by the noise filter |
 | `layer1RoleCount` | Pipeline | Number of birthright roles produced |
 | `layer1RoleIds` | Pipeline | List of birthright role document IDs |

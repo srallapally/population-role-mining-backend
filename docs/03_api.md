@@ -45,6 +45,7 @@ Creates a new session. Validates the filter criteria, resolves all parameters to
 | Field | Required | Default | Description |
 |---|---|---|---|
 | `filterCriteria` | Yes | — | `{columnName: value}` or `{columnName: [value1, value2]}`. Must be non-empty. Keys must be valid column names from `/api/v1/columns`. |
+| `roleType` | Yes | — | `birthright` to produce Layer 1 roles only, or `job_roles` to run the full Layer 1 + Layer 2 pipeline |
 | `universalThreshold` | No | 0.90 | Fraction of population that must hold an entitlement for it to be birthright |
 | `coverageThreshold` | No | 0.80 | Fraction of a community that must hold an entitlement for it to be role-defining |
 | `softThreshold` | No | 0.50 | Minimum prevalence within a community to appear in role metadata at all |
@@ -77,6 +78,8 @@ Creates a new session. Validates the filter criteria, resolves all parameters to
 | Status | Reason |
 |---|---|
 | 400 | Missing `X-Analyst-Id`, empty `filterCriteria`, invalid filter key, rejected system param, threshold out of bounds, cross-field violation |
+| 422 | Pydantic request validation failure, such as missing `roleType` or invalid enum value |
+| 429 | Maximum active sessions or maximum total sessions reached. Includes `retryAfter: 30`. |
 
 ---
 
@@ -117,7 +120,7 @@ Lists sessions. Supports filtering and pagination.
 
 | Parameter | Description |
 |---|---|
-| `status` | Filter by status: `pending`, `running`, `complete`, `saved`, `failed` |
+| `status` | Filter by status: `pending`, `running`, `cancelling`, `cancelled`, `complete`, `saved`, `failed` |
 | `owner` | Filter by `sessionOwner` |
 | `from` | Pagination offset (default 0) |
 | `size` | Page size (default 20, max 100) |
@@ -143,7 +146,7 @@ A completed session includes all output fields. A failed session includes `error
 
 ### PATCH /api/v1/sessions/:id
 
-Updates a session. The only permitted status transition is `complete → saved`.
+Updates a session. Supported status transitions are `complete → saved`, `pending → cancelled`, and `running → cancelling → cancelled` once the background worker reaches a cancellation checkpoint.
 
 **Request body:**
 ```json
@@ -153,12 +156,46 @@ Updates a session. The only permitted status transition is `complete → saved`.
 }
 ```
 
+To request cancellation:
+
+```json
+{
+  "status": "cancelled"
+}
+```
+
+Cancelling a pending session is immediate and triggers cleanup. Cancelling a running session returns `status="cancelling"`; the pipeline cooperatively exits at the next checkpoint, marks the session `cancelled`, and removes generated roles for that session.
+
 **Error responses:**
 
 | Status | Reason |
 |---|---|
 | 404 | Session not found |
-| 409 | Session is not in `complete` status |
+| 409 | Save requested for a non-`complete` session, or cancel requested for a terminal session |
+
+---
+
+### POST /api/v1/sessions/:id/clone
+
+Creates a new pending session from a completed or saved session's immutable `launchConfig`. Results are not copied.
+
+**Response 201:**
+```json
+{
+  "sessionId": "new-uuid",
+  "status": "pending",
+  "createdAt": "2026-05-14T21:50:32Z"
+}
+```
+
+**Error responses:**
+
+| Status | Reason |
+|---|---|
+| 400 | Missing `X-Analyst-Id` |
+| 404 | Source session not found |
+| 409 | Source session is not `complete` or `saved` |
+| 429 | Maximum active sessions or maximum total sessions reached |
 
 ---
 
@@ -221,14 +258,14 @@ Status must follow the sequence. Skipping a step (e.g. `candidate → reviewed`)
 { "entitlements": ["ent_001", "ent_002"] }
 ```
 
-After removal, `applications` and `entitlementCount` are recomputed. `confidence` and outlier analysis are not recomputed — they reflect the original community. The field `analystEdited: true` is set to flag this.
+After removal, `entitlements`, `entitlementMetadata`, and `entitlementCount` are updated. `applications`, `confidence`, and outlier analysis are not recomputed.
 
 **Merge other roles into this role:**
 ```json
 { "mergeRoleIds": ["uuid-of-role-to-absorb"] }
 ```
 
-The source roles' entitlements are unioned into this role. Source roles are marked `discarded`. `applications` and `entitlementCount` are recomputed on the target.
+The source roles' entitlements are unioned into this role. Source roles are marked `discarded`. The target's `entitlements`, `entitlementMetadata`, and `entitlementCount` are updated; `applications`, `confidence`, and outlier analysis are not recomputed.
 
 Operations can be combined in a single PATCH — e.g. rename and advance status together.
 
@@ -260,6 +297,9 @@ Operations can be combined in a single PATCH — e.g. rename and advance status 
 
 8. PATCH /api/v1/sessions/:id   { status: "saved" }
    → { status: "saved" }
+
+9. POST /api/v1/sessions/:id/clone
+   → 201 { sessionId, status: "pending" }
 ```
 
 ---
@@ -267,6 +307,8 @@ Operations can be combined in a single PATCH — e.g. rename and advance status 
 ## Parameter Resolution
 
 All optional parameters are resolved to their effective defaults at session creation time. The resolved values are written to the session document and never changed. The pipeline reads only from `session.parameters` — it never applies defaults or re-resolves values.
+
+The same resolved launch information is also stored in immutable form as `session.launchConfig`. Cloning uses this launch config to create a fresh pending session without copying results.
 
 The `noiseFilterValue` is computed from the analyst's other parameters:
 

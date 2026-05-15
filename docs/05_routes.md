@@ -63,7 +63,15 @@ The `or` pattern fails for any threshold value of `0.0` — it would silently re
 
 ### POST /sessions/:id/run
 
-Uses `transition_session_status()` from the store for the `pending → running` transition. If the transition returns `None` (another thread already transitioned it), a 409 is returned. See `03_store.md` for the threading rationale.
+Uses `transition_pending_to_running()` from the store for the `pending → running` transition. If the transition returns `None` (another thread already transitioned it), a 409 is returned. See `03_store.md` for the threading rationale.
+
+### Session Limits, Cancellation, and Clone
+
+Session creation uses `try_put_session_with_limits()` to enforce both `MAX_ACTIVE_SESSIONS` and `MAX_TOTAL_SESSIONS`. Active sessions are `pending`, `running`, and `cancelling`.
+
+`PATCH /sessions/:id` supports saving complete sessions and cancelling pending/running sessions. Pending sessions transition directly to `cancelled` and cleanup runs immediately. Running sessions transition to `cancelling`; the orchestrator marks them `cancelled` at the next cancellation checkpoint and runs cleanup.
+
+`POST /sessions/:id/clone` creates a new pending session from a complete or saved session's `launchConfig`. Results and role IDs are not copied.
 
 ---
 
@@ -95,17 +103,14 @@ Without the `or 0`, negating `None` raises a `TypeError`. Layer 1 roles sort aft
 
 This is a 200 response, not a 404 — the session exists and the request is valid. The guard is informational: any role documents that may have been written before the failure are not returned, since they may be incomplete.
 
-### Role Editing — `_recompute_role()`
+### Role Editing
 
-After any PATCH operation that modifies entitlements (removal or merge), `_recompute_role()` is called before writing the updated role to the store. It recomputes:
-- `entitlementCount` — from the current `entitlementMetadata`
-- `entitlements` — space-delimited string of role-defining entitlement IDs
-- `applications` — grouped from role-defining metadata
+PATCH operations can rename, advance status, remove entitlements, and merge roles. Entitlement removal updates `entitlements`, `entitlementMetadata`, and `entitlementCount`. Merge unions source entitlements into the target, carries metadata for newly added entitlements, updates `entitlementCount`, and marks source roles `discarded`.
 
-It deliberately does **not** recompute `confidence` or `justificationMetadata.outliers`. These require the original sparse matrix, which is not available after the pipeline completes. Instead, `analystEdited: true` is set on the document to signal to downstream consumers that these fields reflect the original community, not the edited role.
+The current implementation does not recompute `applications`, `confidence`, or `justificationMetadata.outliers`, and it does not set `analystEdited`.
 
 ### Role Merge — `_merge_roles()`
 
-Merges one or more source roles into a target role by unioning their entitlement sets. Source roles are marked `discarded` in the store. The target's entitlement metadata is updated with entries from the sources for any newly added entitlements, and `_recompute_role()` is called to keep derived fields consistent.
+Merges one or more source roles into a target role by unioning their entitlement sets. Source roles are marked `discarded` in the store. The target's entitlement metadata is updated with entries from the sources for any newly added entitlements.
 
 `discarded` is a terminal status — a discarded role cannot be transitioned further. The valid status progression for non-discarded roles is `candidate → draft → reviewed`.

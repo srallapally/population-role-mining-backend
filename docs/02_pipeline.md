@@ -1,6 +1,6 @@
 # Role Mining — The Pipeline
 
-The pipeline runs asynchronously in a background thread after the analyst starts a session. It executes six steps in sequence. If any step fails, the session is marked `failed` with an error message and no roles are written.
+The pipeline runs asynchronously in a background thread after the analyst starts a session. For `roleType="job_roles"`, it executes all six steps. For `roleType="birthright"`, it stops after Step 3 and writes only Layer 1 birthright roles. If any step fails, the session is marked `failed` with an error message.
 
 This document describes each step in functional terms — what it does, what it decides, and what parameters control it.
 
@@ -53,7 +53,7 @@ Universal entitlements are then grouped into one or more **birthright roles**. T
 
 Two entitlements are grouped together if their holder sets are sufficiently similar (controlled by `birthrightCooccurrenceThreshold`). Each resulting group becomes one `layer1_universal` role document.
 
-After this step, all universal entitlements are removed from the matrix. What remains is the **residual matrix** — the access that differentiates users from each other. This is what the remaining steps operate on.
+After this step, all universal entitlements are removed from the matrix. What remains is the **residual matrix** — the access that differentiates users from each other. This is what the remaining steps operate on for `job_roles` sessions.
 
 **What the analyst controls:**
 - `universalThreshold` (default 0.90) — raise to make birthright roles smaller and leave more access for community detection; lower to make birthright roles larger
@@ -147,13 +147,13 @@ Each surviving community produces one `layer2_candidate` role document containin
 
 ## Write Phase
 
-After all six steps complete, the pipeline commits all results atomically:
+For `birthright` sessions, the pipeline writes Layer 1 roles and completes immediately after Step 3. For `job_roles` sessions, after all six steps complete, the pipeline commits all results:
 
 1. Write Layer 1 birthright roles
 2. Write Layer 2 candidate roles
 3. Update the session to `complete` with all output fields
 
-If any role write fails, the session is marked `failed`. The pipeline does not write partial results and then mark complete — it's all or nothing.
+If cancellation is requested while the pipeline is running, the worker exits at the next checkpoint, marks the session `cancelled`, and triggers cleanup for generated roles. If an exception occurs outside cancellation, the session is marked `failed`.
 
 ---
 
