@@ -55,7 +55,7 @@ Creates a new session. Validates the filter criteria, resolves all parameters to
 | `outlierThreshold` | No | 0.30 | Deviation score above which a community member is flagged as an outlier |
 | `birthrightCooccurrenceThreshold` | No | 0.95 | Minimum holder-set similarity to group two universal entitlements into the same birthright role |
 
-**Rejected fields:** `noiseFilterValue`, `noiseFilterFormula`, `maxPopulation` are system-computed and not accepted. Submitting any of these returns 400.
+**Rejected fields:** `noiseFilter`, `noiseFilterValue`, `noiseFilterFormula`, `maxPopulation` are system-computed/internal and not accepted. Submitting any of these returns 400.
 
 **Validation rules:**
 - All threshold fields must be in (0.0, 1.0]
@@ -86,6 +86,12 @@ Creates a new session. Validates the filter criteria, resolves all parameters to
 ### POST /api/v1/sessions/:id/run
 
 Starts the pipeline for a pending session. Returns immediately (202). The pipeline runs in a background thread; poll `GET /sessions/:id` for completion.
+
+**Headers:**
+
+| Header | Required | Description |
+|---|---|---|
+| `X-Analyst-Id` | No | Currently accepted by the route signature but not used for authorization/ownership checks |
 
 **Preconditions checked synchronously (before 202):**
 1. Session exists
