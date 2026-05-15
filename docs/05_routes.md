@@ -33,7 +33,7 @@ These validators run before any route handler code executes. If validation fails
 
 ### Rejected System Parameters
 
-Some parameters are system-computed and must not be accepted from clients (`noiseFilterValue`, `noiseFilterFormula`, `maxPopulation`). Pydantic strips unknown fields before the route handler runs, so checking `hasattr(req, key)` would always be `False` — a dead check.
+Some parameters are system-computed/internal and must not be accepted from clients (`noiseFilter`, `noiseFilterValue`, `noiseFilterFormula`, `maxPopulation`). Pydantic strips unknown fields before the route handler runs, so checking `hasattr(req, key)` would always be `False` — a dead check.
 
 The fix is a FastAPI `Depends` function that reads the raw request body before Pydantic processes it:
 
@@ -64,6 +64,10 @@ The `or` pattern fails for any threshold value of `0.0` — it would silently re
 ### POST /sessions/:id/run
 
 Uses `transition_pending_to_running()` from the store for the `pending → running` transition. If the transition returns `None` (another thread already transitioned it), a 409 is returned. See `03_store.md` for the threading rationale.
+
+### Header Handling on `POST /sessions/:id/run`
+
+The handler signature currently accepts `X-Analyst-Id`, but the value is not used by route logic. The endpoint enforces only session existence/state and concurrent-run limits before transitioning to `running`.
 
 ### Session Limits, Cancellation, and Clone
 
@@ -108,6 +112,10 @@ This is a 200 response, not a 404 — the session exists and the request is vali
 PATCH operations can rename, advance status, remove entitlements, and merge roles. Entitlement removal updates `entitlements`, `entitlementMetadata`, and `entitlementCount`. Merge unions source entitlements into the target, carries metadata for newly added entitlements, updates `entitlementCount`, and marks source roles `discarded`.
 
 The current implementation does not recompute `applications`, `confidence`, or `justificationMetadata.outliers`, and it does not set `analystEdited`.
+
+### Status Constants vs Transitions
+
+`VALID_ROLE_STATUSES` includes `promoted` and `discarded`, but transition enforcement only allows `candidate → draft → reviewed`. `discarded` is applied by merge operations; there is no PATCH transition path to `promoted` in the current implementation.
 
 ### Role Merge — `_merge_roles()`
 
