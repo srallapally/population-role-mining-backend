@@ -108,6 +108,12 @@ The new tool computes that gap explicitly for every role member. It reads the sa
 
 The new tool groups User 0259383 with their peers, identifies A through E as role-defining, and then explicitly computes: this user holds 50 entitlements outside the role definition, representing 56% of their non-birthright access. Here is the list. That finding goes directly into a certification campaign.
 
+**How the new tool refines the role definition within each group.**
+
+Once the tool has grouped users into communities, it does not simply declare everyone in the group a role member and stop. It runs a second analysis within each community: for every entitlement, it computes what fraction of that community's members hold it. Entitlements held by 80% or more of the community are role-defining — these are what the role actually is. Entitlements held by 50–80% of the community are flagged as supporting access — common within the group but not consistent enough to define the role. Entitlements held by fewer than 50% of the community are excluded entirely.
+
+This is what allows the tool to say "this community of 201 users has 20 role-defining entitlements" rather than listing every entitlement any member holds. The community detection finds who belongs together; the prevalence analysis within the community determines which entitlements actually define the role. ARM finds frequency patterns across the whole organisation but never does this within-group refinement — it cannot tell you which entitlements are core to a specific community versus which are incidental extras that some members happen to hold.
+
 **Three additional limitations of ARM:**
 
 ARM requires a large organisation to produce reliable patterns — a team of 30 people in a 10,000-person organisation may be too small to appear in ARM's output at all. The new tool is designed for analyst-scoped populations and works on groups as small as 30 users.
