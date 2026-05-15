@@ -8,51 +8,53 @@ This document explains why the pipeline is designed the way it is, specifically 
 
 Role mining asks: **"which users belong together?"** That is a user-partitioning problem. The natural formulation is to start from users and cluster them directly.
 
-ARM answers a different question: **"which entitlements co-occur?"** That is useful for finding access patterns, but it does not directly tell you who belongs in each role or how coherent the membership is. ARM produces rules — "users who have A and B often also have C" — not roles. Translating rules into roles requires significant post-processing that is fragile and opaque.
+The ARM-based approach answers a different question: **"among users who share certain identity attributes, which entitlements do they frequently hold together?"** The training pipeline reads actual user-entitlement assignments and identity attributes, then runs FPGrowth on the combined set. The antecedent of each rule is a combination of identity attribute values (job code, department, cost centre). The consequent is an entitlement ID. The rule states: "among users with attribute combination X, entitlement Y appears in N% of cases" — a frequency observation derived from real assignment data.
 
-Starting from the right question produces cleaner answers.
+This is useful for understanding what access is common within attribute groups. It is a weaker foundation for governance, because it produces attribute-entitlement frequency associations — not role membership, not per-user deviation analysis, and not a comparison between what any individual user holds and what their peer group's pattern would suggest they should hold.
 
 ---
 
 ## ARM's Structural Weaknesses
 
-**1. ARM scales exponentially with entitlement count.**
+**1. ARM requires a large population to produce reliable rules.**
 
-ARM enumerates combinations. With hundreds of entitlements post noise-filter, the combinatorial space is enormous. ARM addresses this by raising the minimum support threshold, which kills rare-but-legitimate combinations. A team of 30 people in a 10,000-person population has a support of 0.3% — ARM needs an extremely low threshold to find it, which also floods the output with spurious rules.
+FPGrowth requires statistically significant support frequencies to produce reliable rules. Minimum support is calculated as `floor(minGroup / population)`. A team of 30 people in a 10,000-person organisation has a support of 0.3% — near the floor of what is statistically meaningful. Smaller populations produce rules below minimum support thresholds and are effectively invisible to the algorithm.
 
-User-similarity clustering operates on pairwise user comparisons. At 10,000 users that is 50 million pairs — large but tractable via sparse matrix multiplication. The computation does not explode with entitlement count.
+User-similarity clustering operates on pairwise user comparisons within the analyst-defined population, which can be as small as `minGroupSize` (default 30). The computation does not require population-wide statistical significance.
 
-**2. ARM conflates co-occurrence with role membership.**
+**2. ARM observes frequencies but never computes per-user deltas.**
 
-A set of 5 entitlements that frequently co-occur might be held by 3 different user groups for 3 different reasons. ARM proposes one role containing all 5 entitlements. User-clustering finds the 3 communities and discovers that each holds a slightly different subset — producing 3 roles that match how access is actually used.
+ARM reads actual assignments — it knows which users hold which entitlements. FPGrowth finds that, among users with attribute combination X, entitlement Y appears in N% of cases. What it never computes is: for any specific user who satisfies attribute combination X, how does their actual entitlement set compare to the frequent pattern? A user who holds the 5 entitlements that appear in the frequent pattern plus 50 accumulated extras satisfies the same rule antecedent as a cleanly provisioned peer. ARM records both as matching the rule. The 50 extras are visible in the raw assignment data but are never compared against the rule's pattern — the delta is never computed, and overprovisioning is never surfaced.
 
-**3. ARM has no notion of cohesion.**
+User-clustering computes this delta explicitly for every community member: the over-provisioning score is the fraction of a user's residual entitlements that fall outside the role-defining set, and the specific extra entitlements are listed by ID.
 
-ARM can tell you that a combination of entitlements is frequent. It cannot tell you that User X has 14 extra entitlements nobody else in their peer group holds, or that User Y is missing 3 entitlements that 95% of their peers have. User-clustering computes per-user deviation from the detected role profile directly, producing the under-provisioning and over-provisioning scores that governance analysts actually need.
+**3. ARM has no notion of role cohesion.**
 
-**4. ARM buries access drift rather than surfacing it.**
+ARM produces attribute-entitlement frequency rules, not role membership. There is no direct measure of how coherent the set of users who match a given rule antecedent actually is in terms of their access. Two users with the same job code who have very different entitlement profiles are treated identically by ARM — they both satisfy the same antecedent. User-clustering computes mean pairwise Jaccard within each detected community, producing a direct role quality score. ARM has no equivalent.
 
-In populations where users have accumulated entitlements over time, ARM silently absorbs the noise. A user with 5 core Data Analyst entitlements and 50 accumulated extras contributes to the support count of every itemset containing those 50 entitlements. ARM sees all 55 entitlements as signal. The result is that individual access accumulation inflates the support of entitlement combinations that are not real roles — they are artefacts of one person's access history. ARM produces spurious rules from this noise and has no mechanism to distinguish "this combination appears because 30 analysts all have it" from "this combination appears because one analyst accumulated it over 10 years."
+**4. ARM buries access drift in rule frequency.**
 
-User-clustering surfaces the same underlying reality — access drift exists — but as an explicit, per-user, per-entitlement finding. Every community member's deviation from the role profile is measured, decomposed into under-provisioning and over-provisioning, and reported with the specific entitlements involved. The analyst knows exactly which users have excess access and exactly what that excess is. ARM produces no equivalent signal: the dirty access inflates rule support, increases rule count, and makes output harder to interpret, with no indication of which rules are genuine role patterns and which are noise from accumulated individual access.
+When users accumulate entitlements over time, their attribute profiles do not change — their job code and department stay the same. ARM continues to find that users with those attributes frequently hold the role-appropriate entitlements. The accumulated extras appear in the assignment data but are not part of any rule's consequent unless they are themselves frequent across the attribute group. If one user has 50 idiosyncratic extras, those extras do not reach the frequency threshold and are simply absent from the rule output. The pipeline cannot distinguish between a user who was cleanly provisioned yesterday and a user who has accumulated 50 extras over 10 years — both satisfy the same attribute-to-entitlement frequency patterns.
 
-**5. ARM does not handle the universal entitlement problem.**
+User-clustering surfaces access drift as an explicit, per-user, per-entitlement finding. The analyst knows exactly which users have excess access and exactly what that excess is.
 
-In most populations, a handful of entitlements are held by nearly everyone — VPN, email, basic portal access. ARM includes these in every frequent itemset, producing rules like "email AND VPN AND SalesforceAdmin." The universal entitlements add no discriminating information but inflate every rule and dominate the similarity signal.
+**5. Universal entitlements dilute the attribute signal.**
 
-The user-clustering pipeline strips universal entitlements in a dedicated step before any clustering runs. The residual matrix passed to community detection contains only the access that differentiates users. This is a form of feature selection that ARM does not perform.
+In most populations, certain entitlements are held by nearly everyone regardless of their attribute values — VPN access, email, basic portal login. These appear as high-frequency consequents across many rule antecedents and add noise to the output without adding discriminating information.
+
+The user-clustering pipeline strips universal entitlements in a dedicated step before any clustering runs. The residual matrix passed to community detection contains only the access that differentiates users by functional profile. This is a form of feature selection that the ARM training pipeline does not perform.
 
 ---
 
 ## Why User-Clustering Produces Better Roles
 
-**Direct answer to the right question.** Clustering users directly produces role membership as a first-class output. Each community is a set of users, and the role is derived from what those users share. There is no translation step.
+**Direct answer to the right question.** Clustering users directly produces role membership as a first-class output. Each community is a set of users, and the role is derived from what those users share. There is no translation step from frequency rules to roles.
 
 **Cohesion is measurable.** Mean pairwise Jaccard within a community is a direct quality score for the role. A cohesion of 0.8 means community members share 80% of their combined residual access on average. This is interpretable and actionable — an analyst can decide whether a low-cohesion role is worth promoting.
 
-**Outlier detection falls out naturally.** Once a community is defined, any member whose access deviates significantly from the community profile is an outlier. The deviation can be measured precisely and decomposed into under-provisioning (missing role entitlements) and over-provisioning (holding extra entitlements outside the role). ARM has no equivalent — it produces patterns, not memberships, so there is no baseline to deviate from.
+**Outlier detection falls out naturally.** Once a community is defined, any member whose access deviates significantly from the community profile is an outlier. The deviation can be measured precisely and decomposed into under-provisioning (missing role entitlements) and over-provisioning (holding extra entitlements outside the role). ARM never computes this delta — it produces frequency observations, not per-user comparisons against a role baseline.
 
-**Universal stripping is a critical enabler.** Without removing universal entitlements before clustering, every user looks similar to every other user because they all share the same dominant entitlements. The similarity signal is overwhelmed by noise. Stripping universals first means the clustering algorithm operates on the access that genuinely differentiates functional profiles. This step is what makes the community detection meaningful.
+**Universal stripping is a critical enabler.** Without removing universal entitlements before clustering, every user looks similar to every other user because they all share the same dominant entitlements. The similarity signal is overwhelmed by noise. Stripping universals first means the clustering algorithm operates on the access that genuinely differentiates functional profiles.
 
 ---
 
@@ -86,13 +88,11 @@ This is not a pipeline defect. It is a direct reflection of the access landscape
 2. Within the residual, Leiden finds communities — groups of users who are more similar to each other than to the rest of the population.
 3. Within each community, the role-defining entitlements are those held by ≥ 80% of community members. Everything else held by community members is extra access.
 
-The extra access exists because users accumulate entitlements over time. When someone changes teams, takes on additional responsibilities, or covers for a colleague, they are granted access that is never revoked. Over years, individuals build up access profiles that are a superset of any single role. The pipeline's similarity metric (Jaccard) groups these users together because they share a meaningful core — but they each bring their own accumulated extras with them.
-
-The result is large, medium-confidence communities where the role core is real but the membership is noisy. The over-provisioning scores are not artefacts — they are the primary governance finding. These are exactly the users whose access needs review.
+The extra access exists because users accumulate entitlements over time. The pipeline groups these users together because they share a meaningful core — but they each bring their own accumulated extras with them. The over-provisioning scores are not artefacts — they are the primary governance finding.
 
 **Why ARM does not avoid this problem.**
 
-Access drift affects ARM too — it just manifests differently. ARM has no membership concept, so it cannot flag individual users as over-provisioned. Instead, the accumulated extras inflate the support counts of spurious entitlement combinations, producing additional rules that look like real patterns but are artefacts of individual access histories. The analyst receives more rules, not a cleaner signal. There is no way to distinguish a rule backed by 30 analysts who all need the same access from a rule backed by one analyst who accumulated access over 10 years. The problem is present in both approaches; user-clustering makes it visible and actionable, ARM absorbs it silently into rule frequencies.
+ARM reads the same assignment data and therefore sees the same entitlements. The difference is what it does with them. ARM computes frequency patterns — which entitlements appear together across users who share attribute values. It never computes the delta between what any individual user holds and what the frequent pattern for their attribute group would suggest. A user with 50 extra entitlements satisfies the same attribute-frequency rules as a cleanly provisioned peer. The extras may not reach the frequency threshold to appear as a rule consequent, so they are simply absent from the output. The overprovisioning is in the data; ARM's output structure has no place to put it.
 
 **Why the similarity threshold matters.**
 
@@ -126,9 +126,9 @@ The pipeline correctly identifies a dirty access landscape. The appropriate resp
 
 For clean, well-scoped populations where most users have a single dominant functional profile, user-clustering produces significantly better roles than ARM — more coherent membership, directly interpretable quality scores, and natural outlier detection.
 
-For populations with many multi-role users or highly individualised access, neither approach works well. ARM would still surface frequent entitlement patterns even if it cannot identify membership, whereas user-clustering produces a high singleton rate and few communities. In these cases the singleton rate itself is a governance finding: the population does not have role-like structure, and access is too individualised to mine into managed roles without first cleaning up the access landscape.
+For populations with many multi-role users or highly individualised access, neither approach works well. ARM would still produce attribute-entitlement frequency observations even where access is dirty, but those observations would not surface who is overprovisioned or how far any individual has drifted. User-clustering produces a high singleton rate and few communities. In these cases the singleton rate itself is a governance finding: the population does not have role-like structure, and access is too individualised to mine into managed roles without first cleaning up the access landscape.
 
-A hybrid would be strongest: use user-clustering to find communities, then use entitlement co-occurrence analysis within each community to validate and refine the role definition. The two-tier entitlement system (role-defining vs common-not-universal) approximates this — it applies prevalence thresholds within each detected community rather than session-wide, which preserves the role signal for small communities that would be invisible to session-wide ARM.
+A hybrid would be strongest: use user-clustering to find communities, then use entitlement prevalence analysis within each community to validate and refine the role definition. The two-tier entitlement system (role-defining vs common-not-universal) approximates this — it applies prevalence thresholds within each detected community rather than session-wide, which preserves the role signal for small communities that would be invisible to org-wide ARM training.
 
 ---
 
@@ -190,15 +190,7 @@ This means the pipeline can fail to discover roles that organisationally exist, 
 
 **The population filter partially compensates.**
 
-If an analyst filters by a specific attribute value — `JobCode = Physician Assistant` — all users in the session already share that attribute. Within that population, entitlement similarity is the right discriminator for finding sub-groups and surfacing access drift. The problem resurfaces when the analyst uses a broader filter (e.g. a whole department) where multiple job functions are mixed together. In that case, users who share a job code may be scattered across different communities or classified as singletons because their entitlement sets have diverged, even though they are organisationally the same peer group.
-
-**Two approaches that would address this.**
-
-*Option 1 — Hybrid similarity.* Compute similarity as a weighted combination of entitlement Jaccard and attribute Jaccard (one-hot encoded attribute values, Jaccard over attribute-value pairs). A user who shares job code, department, and location with another user gets a similarity boost even if their entitlement sets have diverged due to access drift. The `similarityThreshold` parameter then operates on this blended score, allowing the algorithm to group users who are organisationally similar even when their access profiles have drifted apart.
-
-*Option 2 — Attribute-seeded communities.* Group users by attribute values first (exact match on analyst-selected attributes), then run entitlement similarity analysis within each attribute group. This guarantees that users with the same job function are always considered together, and the entitlement analysis within the group surfaces who is correctly provisioned versus who has drifted. This is closer to how a governance analyst thinks: "show me all the Physician Assistants in Ambulatory Informatics and tell me what access they share."
-
-Option 2 is more interpretable and maps directly to how analysts already think about role design. Option 1 is more powerful for cases where attribute values do not cleanly delineate functional roles — for example, when job code granularity is coarse or inconsistent across business units.
+If an analyst filters by a specific attribute value — `JobCode = Physician Assistant` — all users in the session already share that attribute. Within that population, entitlement similarity is the right discriminator for finding sub-groups and surfacing access drift. The problem resurfaces when the analyst uses a broader filter (e.g. a whole department) where multiple job functions are mixed together.
 
 **What this means for production.**
 
@@ -210,54 +202,52 @@ This is the most significant algorithmic gap between the current implementation 
 
 ## Review of the Production ARM Pipeline
 
-The existing Ping IGA role mining implementation (`mine.py`) takes pre-computed association rules as input — it does not run ARM itself. The actual Apriori or FP-Growth computation happens upstream in a separate training job. This pipeline takes the rule output, filters it by confidence and frequency thresholds, mines candidate roles from the surviving rules, and writes results to Elasticsearch via Spark on Dataproc.
+The existing Ping IGA role mining implementation consists of two jobs. The training job (`train.py`) reads actual user-entitlement assignments and identity attributes, then runs FPGrowth on the combined dataset to produce association rules. The rules take the form: "among users with attribute combination X, entitlement Y appears in N% of cases." The mining job (`mine.py`) takes those pre-computed rules, filters them by confidence and frequency thresholds, groups them into candidate roles, and writes results to Elasticsearch.
+
+The key structural point: ARM reads real assignment data — it knows which users hold which entitlements. The gap is not that it lacks access to the data. The gap is that it computes frequency observations across attribute groups but never computes the delta between what any individual user holds and what the frequent pattern for their group would suggest. That delta is the overprovisioning signal.
 
 Several structural observations from reviewing the implementation:
 
-**Rules are the input, not entitlements.** `source.prepare_rules` filters `df_rules` by `conf_threshold` and `freq_threshold`. The pipeline never sees raw user-entitlement assignments for role discovery — only pre-computed rules. All ARM limitations (spurious rules from access drift, universal entitlement inflation, no membership baseline) are baked in before this code runs. The quality of the output is entirely determined by the upstream training job.
+**No population scoping.** There is no analyst-defined population filter — this is an org-wide batch job. Every rule that survives the threshold filters becomes a candidate role regardless of which population it applies to.
 
-**No population scoping.** `df_enriched_user` and `df_assignments` are passed in but used only for building index outputs, not for filtering the mining population. There is no analyst-defined population filter — this is an org-wide batch job. Every rule that survives the threshold filters becomes a candidate role regardless of which population it applies to.
+**No cohesion scoring.** The only quality signals are `conf_threshold` (rule confidence) and `freq_threshold` (rule support). These measure how frequently an attribute combination predicts an entitlement — not how coherent the set of users who match that combination actually is.
 
-**No cohesion scoring.** There is no equivalent of mean pairwise Jaccard on role members. The only quality signals are `conf_threshold` (rule confidence) and `freq_threshold` (rule support). These are rule-level metrics, not role-level membership quality metrics.
+**No per-user delta analysis.** The pipeline builds `df_role_assignments` but never computes the difference between what each user holds and what their role's frequent pattern contains. A user with 50 extra entitlements is recorded as a role member identically to a cleanly provisioned peer. The extras are in the raw data; they are never extracted, compared, or surfaced.
 
-**No outlier detection.** The pipeline builds `df_role_assignments` but computes no over-provisioning or under-provisioning scores. A user with 5 role-defining entitlements and 50 accumulated extras is recorded as a role member. The 50 extras are invisible to the pipeline — they do not affect role assignment, they do not appear in any output, and no analyst is told they exist.
+**Access drift is structurally invisible.** Because the output is frequency observations across attribute groups, idiosyncratic extras that do not reach the frequency threshold simply do not appear in any rule consequent. They are present in `df_assignments` but are never compared against anything.
 
-**Access drift is invisible.** `df_assignments` is used to build the users index only. There is no step that compares a user's full assignment set against the roles they are placed in. The overprovisioning problem exists in the underlying data; the ARM pipeline simply has no mechanism to see it.
+**Final role mapping is a deduplication heuristic.** `_map_mined_to_final` maps newly mined roles back to existing promoted roles using a distance score. This is necessary because FPGrowth produces different rule sets each run — there is no stable role identity across runs. The POC avoids this problem: roles have stable UUIDs and can be re-run on the same population without reconciling against prior runs.
 
-**Final role mapping is a deduplication heuristic.** `_map_mined_to_final` maps newly mined roles back to existing promoted roles using a distance score. This is necessary because ARM produces different rule sets each run — there is no stable role identity across runs. The user-clustering approach avoids this problem: roles have stable UUIDs and can be re-run on the same population without reconciling against prior runs.
-
-**Candidate deduplication is fragile.** `_remove_existing_candidates_from_mined` deduplicates by matching on `entitlements` and `justifications` columns. If the entitlement set or justification string changes by even one token between runs, a previously promoted candidate is not recognised as the same role and a duplicate is written.
+**Candidate deduplication is fragile.** `_remove_existing_candidates_from_mined` deduplicates by matching on `entitlements` and `justifications` columns. If either changes by even one token between runs, a previously promoted candidate is not recognised and a duplicate is written.
 
 ---
 
 ## Does ARM Do a Better Job Reducing Overprovisioned Access?
 
-No. It does a worse job, for a specific structural reason: ARM cannot detect overprovisioning at all.
-
-The ARM pipeline assigns users to roles based on rule membership. But it never asks what else a user holds that the role does not require. There is no step in the pipeline that compares a user's full entitlement set against their assigned role's entitlement set. The result is that a user with 5 role-defining entitlements and 50 accumulated extras is simply recorded as a role member. The 50 extras are invisible.
+No. ARM reads the same assignment data as the POC but never computes per-user deltas against a role pattern. The overprovisioning is present in the data; ARM's output structure has no place to represent it.
 
 The POC detects and quantifies overprovisioning explicitly. For every community member, `overProvisioningScore` is computed — the fraction of the user's residual entitlements that fall outside the role-defining set — and the specific extra entitlements are listed by ID. An analyst reviewing a role can see immediately: this user holds 50 entitlements beyond the role definition, here is the list, here is the percentage. That is directly actionable in an access review or certification campaign.
 
-**Where ARM arguably performs better: role boundary precision.**
+**Where ARM has a genuine advantage: population scale.**
 
-ARM produces roles from entitlement co-occurrence patterns across the full org. If a set of entitlements genuinely travels together across thousands of users, ARM finds it cleanly. The role boundary is tight by construction — a role is exactly the frequent itemset, nothing more.
+ARM's training runs org-wide and produces rules that reflect access patterns across the entire organisation. For large, stable populations with consistent provisioning, this produces well-supported rules with high frequency confidence. The POC is scoped to analyst-defined populations (up to 10,000 users) and requires the analyst to define the population correctly. ARM requires no analyst judgment about population selection — it mines the whole org automatically.
 
-The POC's roles are community boundaries, not entitlement boundaries. A community is a group of users who are similar to each other. The role-defining entitlements are derived from whoever is in the community, which means if the community is loose (low confidence score), the role boundary is loose too.
+**Where ARM's advantage collapses: dirty access landscapes.**
 
-This advantage is conditional. It only holds when the access landscape is clean (no significant drift), the population is large enough for ARM's support thresholds to be meaningful, and universal entitlements have been pre-filtered (the ARM pipeline does not do this). In a real enterprise with access accumulation — the typical case — ARM's apparent precision is an illusion. The role looks tight because it is defined by entitlement co-occurrence, but the users assigned to it carry significant extra access that the pipeline never surfaces. The overprovisioning exists; ARM just does not see it.
+ARM's frequency observations are only as good as the assignment data they are derived from. In organisations with significant access accumulation, the training data contains years of drift. Frequency patterns derived from that data reflect what users have accumulated, not what their roles actually require. The apparent authority of ARM's rules is an artefact of the historical data, not evidence of clean role boundaries.
 
 | Capability | ARM pipeline | POC |
 |---|---|---|
-| Detects overprovisioning | No | Yes — per user, per entitlement |
-| Detects underprovisioning | No | Yes — per user, per entitlement |
-| Role boundary precision | High in clean landscapes | Depends on similarity threshold |
-| Handles access drift | Absorbs it silently | Surfaces it explicitly |
+| Reads actual assignment data | Yes | Yes |
+| Computes per-user delta vs role pattern | No | Yes — overProvisioningScore per user |
+| Detects underprovisioning | No | Yes — underProvisioningScore per user |
+| Role cohesion score | No | Yes — mean pairwise Jaccard on members |
+| Handles access drift | Frequency observations absorb it | Surfaces it explicitly per user |
 | Population scoping | No — org-wide only | Yes — analyst-defined |
-| Confidence / cohesion score | No | Yes — mean pairwise Jaccard |
 | Works on small populations | No — needs statistical support | Yes — down to minGroupSize |
 | Stable role identity across runs | Yes — via distance mapping heuristic | Not yet — production gap |
 
-ARM does not reduce overprovisioned access — it is blind to it. The POC is the first step toward actually addressing it, because it produces the specific findings (which users, which entitlements, what scores) that an access review campaign needs as input.
+ARM does not reduce overprovisioned access — the delta between what users hold and what their role requires is never computed. The POC produces that delta explicitly for every role member, which is what an access review campaign needs as input.
 
 ---
 
@@ -273,17 +263,13 @@ This separation is intentional and correct. Step 1 defines the peer group the an
 
 **Where the gap actually is.**
 
-The earlier discussion about attribute similarity and hybrid similarity was identifying a specific failure mode within step 2, not a flaw in the overall approach.
-
-Within a well-scoped population — say, `JobCode = Physician Assistant AND Department = Ambulatory Informatics` — two users are organisationally identical. But if one has clean access and one has accumulated 50 extra entitlements over years of role changes, their residual Jaccard similarity may fall below `similarityThreshold`. They have no edge in the similarity graph. They end up in different communities, or one becomes a singleton.
+Within a well-scoped population — say, `JobCode = Physician Assistant AND Department = Ambulatory Informatics` — two users are organisationally identical. But if one has clean access and one has accumulated 50 extra entitlements over years of role changes, their residual Jaccard similarity may fall below `similarityThreshold`. They end up in different communities, or one becomes a singleton.
 
 The pipeline correctly identifies that their access is dissimilar. But the access dissimilarity is not a signal that they belong in different roles — it is the governance problem to be solved. The heavily drifted user's access needs review, not a separate role.
 
 **What happens to singletons today.**
 
-The pipeline reports `singletonCount` on the session document. That is the extent of singleton analysis. The singleton disappears from the role output entirely. No role is produced for them, no over-provisioning score is computed, and no analyst is told which role they most closely resemble or how far their access has drifted from their peer group.
-
-This is the actual gap in the current implementation. It is not that the two-step approach is wrong — it is that singletons are currently a dead end.
+The pipeline reports `singletonCount` on the session document. That is the extent of singleton analysis. The singleton disappears from the role output entirely. No role is produced for them, no over-provisioning score is computed, and no analyst is told which role they most closely resemble or how far their access has drifted from their peer group. This is the actual gap in the current implementation.
 
 **The correct fix: singleton-to-role affinity analysis.**
 
@@ -293,10 +279,8 @@ A singleton who is a Physician Assistant in Ambulatory Informatics but has 60 ex
 
 This reframes singletons from a failure of community detection into a governance output in their own right. A high singleton count is not just a signal to tune the similarity threshold — it is a list of users whose access has drifted so far from any peer group that they warrant individual access review, regardless of whether a community-based role can be defined for them.
 
-**Implication for the Options discussed earlier.**
+**The correct approach: tight communities plus singleton affinity analysis.**
 
-The hybrid similarity (Option 1) and attribute-seeded communities (Option 2) approaches discussed earlier were solving the wrong version of the problem. They were trying to prevent singletons by pulling drifted users into communities. That produces looser communities with lower confidence scores — the role quality degrades to accommodate the access drift.
+Attempting to prevent singletons by pulling drifted users into communities via hybrid similarity or attribute-seeded partitioning produces looser communities with lower confidence scores — role quality degrades to accommodate the access drift. The correct approach is the opposite: let the similarity threshold do its job and produce tight, high-confidence communities, then treat singletons as a separate governance output via affinity analysis rather than forcing them into communities where they do not belong.
 
-The correct approach is the opposite: let the similarity threshold do its job and produce tight, high-confidence communities, then treat singletons as a separate governance output via affinity analysis rather than forcing them into communities where they do not belong. Tight roles plus explicit singleton affinity analysis produces better governance outcomes than loose roles that absorb drifted users.
-
-Option 3 — intra-community entitlement co-occurrence analysis to validate and refine role definitions — remains valid as an enhancement to role definition quality once communities are formed. It is independent of the singleton question.
+Tight roles plus explicit singleton affinity analysis produces better governance outcomes than loose roles that absorb drifted users.
